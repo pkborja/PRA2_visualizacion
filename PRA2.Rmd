@@ -1,0 +1,212 @@
+---
+title: "Práctica 2: Electrificación del automóvil en la última década"
+subtitle: "M2.859: Visualización de datos"
+author: "Borja Martínez Nieto"
+date: '2023-01-15'
+output:
+  html_document:
+    toc: yes
+    fontsize: 12pt
+    mainfont: CourierNew
+---
+
+# Los datos a estudiar
+
+En este estudio de visualización de datos he decidido observar la fuerza que ha tenido la electrificación en el sector automovilístico. Yo mismo trabajo en el sector y tanto de la prensa como de los trabajadores con más experiencia escuchamos que la velocidad de este cambio no tiene precedentes en el sector. Principalmente se podría deber a la legislación que se prevee aplicar a las emisiones contaminantes en las próximas décadas, así como a la competencia global tan fuerte que hay en el mercado actualmente.
+
+En este trabajo no voy a explorar las causas de esta transición sino la magnitud de la propia electrificación, quién han sido los protagonistas y la estructura de la misma. Para ello, he hecho un estudio muy localizado de manera que pueda tener la mayor fiabilidad de los datos posible.
+
+Los datos provienen del censo de matriculaciones del estado de Washington de EEUU. Es prácticamente el único juego de datos, dónde contamos con un censo en lugar de con una muestra. Además, se trata de un estado afluente pero no excesivamente urbano, con lo cual parece una población equilibrada para poner a prueba la tesis principal.
+
+Las dimensiones del conjunto de datos inicial son de 17 columnas y 112634 filas. Tras crear nuevas columnas, eliminar las irrelevantes y acortar los años a la última década (antes de eso los coches eléctricos apenas existían) nos quedan 12 colummnas y 109844 filas. Las nuevas variables creadas son longitud, latitud y rango en kilómetros.
+
+```{r, warning=FALSE, message=FALSE}
+# Importamos el archivo csv.
+
+library(tidyverse)
+
+file_path <- "C:/Users/borja/Desktop/Academia/master/visualizacion/PRACTICA/Electric_Vehicle_Population_Data.csv"
+
+data <- read.csv(file_path)
+
+data <- select(data, 1, City, State, Model.Year, Make, Model,
+                Electric.Vehicle.Type, Electric.Range,
+                Vehicle.Location)
+
+names(data)[names(data) == "VIN..1.10."] <- "Plate"
+names(data)[names(data) == "Electric.Vehicle.Type"] <- "Type"
+names(data)[names(data) == "Model.Year"] <- "Year"
+
+data$Longitude <- str_extract(data$Vehicle.Location,
+                                     "[0-9.-]+")
+data$Latitude <- str_extract(data$Vehicle.Location,
+                                      "[0-9.]+(?=\\))")
+
+data$Range.Km <- round(data$Electric.Range*1.60934)
+
+data <- data[(data$Year<2023 & data$Year>2011),]
+
+# Número de registros y columnas.
+print(paste0("Número de columnas: ", ncol(data)))
+print(paste0("Número de filas: ", nrow(data)))
+
+print("Nombre de las columnas:")
+colnames(data)
+
+head(data)
+
+```
+
+Eliminamos ahora todas las filas con valores nulos, ya que solo representan 0,02% del total de las filas.
+
+```{r, warning=FALSE}
+
+nas <- as.array(rowSums(is.na(data)))
+
+print(paste0("Porcentaje de filas con valores nulos: ", 
+             round((sum(nas>0, na.rm = TRUE)/nrow(data))*100, 2), "%"))
+
+data <- na.omit(data)
+
+```
+
+# Visualizaciones
+
+
+A continuación, visualizamos la evolución de los coches eléctricos tanto PHEV como BEV. Efectivamente, vemos un crecimiento exponencial en la venta de coches eléctricos aunque no en la de híbridos enchufables.
+
+```{r, warning=FALSE}
+library("ggplot2")
+
+library("tidyverse")
+
+year_count <- table(select(data, Year, Type))
+
+year_count <- as.data.frame(year_count)
+
+names(year_count)[names(year_count) == "Freq"] <- "Ventas"
+
+ggplot(year_count, aes(x = Year, y = Ventas, colour = Type,
+                       group = Type)) + geom_point() + geom_line() +
+                      ggtitle("Venta anual de Coches Eléctricos (2012-2022)")
+
+
+```
+
+
+Ahora veremos qué modelos y que marcas han sido las protagonistas del cambio.
+
+En la primera tabla vemos como Tesla domina el mercado, mientras que en los tres gráficos vemos que esto solo ha sido así en los últimos años, que son sin embargo los que tienen más peso debido al gran número de coches eléctricos vendidos.
+
+```{r, warning=FALSE}
+
+library(gt)
+library(gtExtras)
+library(png)
+
+year_makers <- table(select(data, Year, Make))
+
+year_makers <- as.data.frame(year_makers)
+
+write.csv(year_makers,
+          "C:/Users/borja/Desktop/Academia/master/visualizacion/PRACTICA/carmaker.csv",
+          row.names = FALSE)
+
+
+data$Full.Model <- paste(data$Make, " ", data$Model)
+
+models <- table(select(data, Full.Model))
+models <- as.data.frame(models)
+
+names(models)[names(models) == "Freq"] <- "Ventas"
+names(models)[names(models) == "Var1"] <- "Modelo"
+
+models <- models[order(models$Ventas, decreasing = TRUE),]
+
+head(models, 7) %>% 
+  gt() %>% 
+  gt_theme_nytimes() %>%
+  tab_header(title = "Modelos Top Ventas (2012-2022)")
+
+makers_2012 <- readPNG("2012.png")
+plot.new() 
+rasterImage(makers_2012,0,0,1,1)
+
+makers_2017 <- readPNG("2017.png")
+plot.new() 
+rasterImage(makers_2017,0,0,1,1)
+
+makers_2022 <- readPNG("2022.png")
+plot(0:1,1:0,type="n",ann=FALSE,axes=FALSE)
+rasterImage(makers_2022,0,0,1,1)
+
+```
+
+A continuación, vemos la evolución de la tecnología. Esto significa, como han evolucionado las autonomías de los coches.
+
+Lo que vemos es que la evolución es positiva pero menos marcada que las ventas. También vemos como el coche eléctrico medio cada vez se acerca más a la autonomía del coche con más autonomía de cada año. Lo interpretamos como que la tecnología está siendo cada vez más asequible.
+
+```{r, warning=FALSE}
+
+library(tidyr)
+
+avg_km <- aggregate(Range.Km ~ Year,
+                    data = data[(data$Type == "Battery Electric Vehicle (BEV)"
+                                 & data$Year <= 2020),]
+                    , FUN = mean)
+
+names(avg_km)[names(avg_km) == "Range.Km"] <- "Avg"
+
+
+max_km <- aggregate(Range.Km ~ Year,
+                    data = data[(data$Type == "Battery Electric Vehicle (BEV)"
+                                 & data$Year <= 2020),]
+                    , FUN = max)
+
+mileage <- cbind(avg_km, max_km$Range.Km)
+
+names(mileage)[names(mileage) == "max_km$Range.Km"] <- "Max"
+
+mileage <- mileage %>%
+  pivot_longer(
+    cols = 'Avg':'Max',
+    names_to = "Types",
+    values_to = "Range"
+  )
+
+ggplot(mileage, aes(fill=Types, y=Range , x = Year)) + 
+    geom_bar(position="dodge", stat="identity") +
+    ggtitle("Average and Maximum Range per Year of Battery Electric Vehicles (2012-2020)")
+
+```
+
+Por último, vemos dónde se ha dado esta evolución. Lo que observamos en el mapa son los coches vendidos en cada ciudad, que a la vez lo comparamos con la densidad poblacional del estado (2010, Census Bureau U.S.). Lo que observamos es que la electrificación es este estado no ha sido un fenómeno de las grandes ciudades, como podríamos llegar a deducir.
+
+```{r, warning=FALSE, message=FALSE}
+
+library(tidyverse)
+library(sf)
+library(mapview)
+library(png)
+
+data$Longitude <- as.numeric(data$Longitude)
+data$Latitude <- as.numeric(data$Latitude)
+
+map_data <- data[sample(nrow(data), 10000), ]
+
+
+mapview(map_data, xcol = "Longitude", ycol = "Latitude", crs = 4269, grid = FALSE, map.types = "Stamen.Toner")
+
+density <- readPNG("density.png")
+plot.new() 
+rasterImage(density,0,0,1,1)
+
+```
+
+
+# Conclusiones
+
+Podemos concluir sabiendo varias cosas nuevas sobre la electrificación. La priúltimomera, que confirmamos que el crecimiento de ventas ha sido exponencial para los BEV y apenas ha habido para los PHEV. La segunda, que el protagonista indiscutible ha sido Tesla, a pesar de que solo ha dominado en los últimos años de la década. En tercer lugar, hemos visto que la tecnología evoluciona aunque no tan rápido como las ventas y que tener una gran autonomía se está generalizando y no es algo que pertenezca solo a los modelos más lujosos. Por último, vemos que la electrificación no es solo un fenómeno urbano.
+
+Gracias a este trabajo he podido explicar y comprender mejor la industria lider en muchos países y el cambio en el que está immersa.
+
